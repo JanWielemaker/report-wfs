@@ -50,16 +50,173 @@ Run \arg{Goal}. If shift/1 is called somewhere during the evaluation of
 the execution of \arg{Goal} and make the reset/3 goal succeed. If
 shift/1 is \emph{not} called during the execution of \arg{Goal},
 \arg{Continuation} is unified with the integer 0.
-
 \end{description}
 
+The behaviour is best described using a demo. Consider the program
+below. Its execution consists of the following steps:
 
+\begin{enumerate}
+    \item Running go/0 calls reset/3, calling p/0.
+    \item p/0 writes ``Hello''.
+    \item p/0 calls shift/1.  Shift/1's \arg{Ball} unifies with the
+          reset/3 \arg{Ball}.  Shift/1 makes reset/3 succeed binding
+	  \arg{Continuation} to a callable term that runs the remainder
+	  of p/0, in this case \term{writeln}{Y}.
+    \item Go/0 takes the second branch of the if-then-else, unifies
+          the \arg{Ball}'s argument to \const{world} and calls the
+	  continuation.
+    \item p/0 completes
+    \item go/0 completes.
+\end{enumerate}
 
+\begin{code}
+p :- write('Hello '), shift(get(Y)), writeln(Y).
 
+go :-
+    reset(p, get(X), Continuation),
+    (   Continuation == 0
+    ->  true
+    ;	X = world,
+        call(Continuation)
+    ).
 
+?- go.
+Hello world
+true.
+\end{code}
+
+Technically, a continuation is a list if \jargon{environments}, each
+consisting of a \jargon{clause}, a \jargon{program counter} pointing
+into the code of this clause and a vector of \jargon{registers} that
+belong to this environment. Calling the continuation implies restoring
+the environment and resume its execution. Provided we make sure the
+referenced clauses are not modified we can, instead of immediately
+calling the continuation as in go/0, store the continuation (for example
+using assertz/1) and run it at as many times as we wish at any point in
+time.
 
 
 \section{Tabling using delimited continuations}
+
+\subsection{Tabling 0.0}
+
+In its simplest form tabling stores the answer of a call
+\jargon{variant} in a trie. Any subsequent call to this variant uses the
+answers from this trie rather than using the clauses to generate
+answers. This simple form can be illustrated using the program in
+\figref{tabling0}.
+
+\begin{figure}[ht]
+\begin{code}
+run_tabled(Goal) :-
+    variant_trie(VTrie),
+    trie_lookup(VTrie, Goal, ATrie),
+    !,
+    trie_gen(ATrie, Goal).
+run_tabled(Goal) :-
+    variant_trie(VTrie),
+    trie_new(ATrie),
+    trie_insert(VTrie, Goal, ATrie),
+    (   call(Goal),
+	trie_insert(ATrie, Goal),
+	fail
+    ;   true
+    ),
+    trie_gen(ATrie, Goal).
+\end{code}
+    \caption{Tabling 0.0: memoizing only}
+    \label{fig:tabling0}
+\end{figure}
+
+Note that the tables are stored in a trie-of-tries. The global
+\jargon{variant trie} maps goals to \jargon{answer tries} that contain
+the answers for this goal. Tabling in general does not maintain order of
+answers and avoids duplicate answers.
+
+The above tabling implementation avoids repetetive evaluation of the
+same goal, but is still sensitive to the non-terminating \jargon{left
+recursion}, i.e., if somewhere during the execution of \arg{Goal} a
+variant of \arg{Goal} is triggered the execution will go into an
+infinite recursion.
+
+
+\subsection{Tabling 0.5}
+
+Tabling 0.5 detects non-termination due to left recursion. It achieves
+this goal by detecting it is calling a variant of itself as a subgoal.
+The first step is to associate three states for each variant:
+\jargon{fresh} means we see this variant for the first time,
+\jargon{complete} means we enumerated all its answers and finally,
+\jargon{incomplete} implies we started the failure driven loop of the
+second clause of \figref{tabling0}, but did not yet finish it. We first
+introduce two new predicates to keep our code concise. After that we can
+refine our program to detect the problematic left recursion as in
+\figref{tabling05}
+
+\begin{description}
+    \predicate{answer_table}{3}{:Goal, -ATrie, -Status}
+Get the answer table for \arg{Goal} and return its status as
+\const{fresh} (we just created the table), \const{incomplete}
+(we started filling it) and \const{complete} (we filled it).
+This predicate combines variant_trie/1, its lookup or adding
+an answer trie and maintaining a status flag on the answer trie.
+    \predicate{complete_table{1}{+ATrie}
+Set the status of \arg{ATrie} to \const{complete}.
+\end{description}
+
+\begin{figure}[ht]
+\begin{code}
+run_tabled(Goal) :-
+    answer_table(VTrie, ATrie, Status),
+    (   Status == complete
+    ->  trie_gen(ATrie, Goal)
+    ;   Status == fresh
+    ->  (   call(Goal),
+	    trie_insert(ATrie, Goal),
+	    fail
+        ;   complete_table(ATrie)
+	),
+	trie_gen(ATrie, Goal)
+    ;   panic("Left recursion!")
+    ).
+\end{code}
+    \caption{Tabling 0.5: detect left recursion}
+    \label{fig:tabling05}
+\end{figure}
+
+
+\subsection{Tabling 1.0}
+
+In this step we will fix the left recursion. We do that, and this is the
+crucial element of all advanced tabling, by \jargon{delaying}
+problematic goals.  First, we introduce a real program, representing
+a tiny fragment of the railway network of The Netherlands.
+
+\begin{code}
+track(amsterdam, haarlem).
+track(amsterdam, schiphol).
+track(schiphol,  leiden).
+track(haarlem,   leiden).
+\end{code}
+
+Of course, if there is a track from $A$ to $B$, we can also use it the
+other way around. The rule below adds this knowledge. Added as first
+rule we have a left recursion problem immediately. As last rule we first
+get some answers, but eventually the program goes into an infinite
+recursion.
+
+\begin{code}
+track(A, B) :- track(B, A).
+\end{code}
+
+As a first step, we observe that \exam{p :- p.} produces no solutions.
+
+
+
+
+
+
+
 
 \section{Strongly connected components}
 
