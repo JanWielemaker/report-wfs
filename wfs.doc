@@ -8,6 +8,8 @@
 
 \renewcommand{\runningtitle}{Tabling in SWI-Prolog}
 
+\begin{document}
+
 \title{Tabling in SWI-Prolog}
 \author{Jan Wielemaker \\
         VU University of Amsterdam \\
@@ -23,9 +25,5 @@ TBD
 \tableofcontents
 
 \section{Introduction}
-
-
-
-
 
 \end{document}

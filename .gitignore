@@ -1,0 +1,10 @@
+*~
+*.ind
+*.ilg
+*.idx
+*.toc
+*.out
+*.aux
+*.log
+*.tex
+*.pdf
