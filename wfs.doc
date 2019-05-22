@@ -1,0 +1,31 @@
+\documentclass[11pt]{article}
+\usepackage{times}
+\usepackage{pl}
+\usepackage{plpage}
+\usepackage{html}
+\sloppy
+\makeindex
+
+\renewcommand{\runningtitle}{Tabling in SWI-Prolog}
+
+\title{Tabling in SWI-Prolog}
+\author{Jan Wielemaker \\
+        VU University of Amsterdam \\
+        The Netherlands \\
+        E-mail: \email{J.Wielemaker@vu.nl}}
+
+\maketitle
+
+\begin{abstract}
+TBD
+\end{abstract}
+
+\tableofcontents
+
+\section{Introduction}
+
+
+
+
+
+\end{document}
