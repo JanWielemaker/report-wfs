@@ -160,7 +160,7 @@ Get the answer table for \arg{Goal} and return its status as
 (we started filling it) and \const{complete} (we filled it).
 This predicate combines variant_trie/1, its lookup or adding
 an answer trie and maintaining a status flag on the answer trie.
-    \predicate{complete_table{1}{+ATrie}
+    \predicate{complete_table}{1}{+ATrie}
 Set the status of \arg{ATrie} to \const{complete}.
 \end{description}
 
