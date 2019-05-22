@@ -19,11 +19,59 @@
 \maketitle
 
 \begin{abstract}
-TBD
+This technical report describes the tabling implemention of SWI-Prolog.
+This implemention is based on \jargon{delimited continuations} rather
+than the SLG WAM engine as used by XSB Prolog.
 \end{abstract}
 
 \tableofcontents
 
 \section{Introduction}
+
+\section{Delimited continuations}
+
+Explicit handling of \jargon{continuations} is notably popular in
+functional programming. Tom Schrijvers initiated its adoption in Prolog
+\cite{DBLP:journals/tplp/SchrijversDDW13}. It was first of all
+introduced as a way to realise \jargon{coroutining} in
+Prolog\footnote{The term \jargon{coroutining} is ambiguous in Prolog. It
+is primarily used for goals that are triggered by unification through
+\jargon{attributed variables}.  In this document we do \emph{not} refer
+to \jargon{attributed variables}.}. Delimited continuations are realised
+through two predicates: reset/3 and shift/1.
+
+\begin{description}
+    \predicate{reset}{3}{:Goal, ?Ball, -Continuation}
+\nodescription
+    \predicate{shift}{1}{+Ball}
+Run \arg{Goal}. If shift/1 is called somewhere during the evaluation of
+\arg{Goal} and shift's \arg{Ball} unifies with our \arg{Ball}, unify
+\arg{Continuation} with a callable term that captures the remainder of
+the execution of \arg{Goal} and make the reset/3 goal succeed. If
+shift/1 is \emph{not} called during the execution of \arg{Goal},
+\arg{Continuation} is unified with the integer 0.
+
+\end{description}
+
+
+
+
+
+
+
+\section{Tabling using delimited continuations}
+
+\section{Strongly connected components}
+
+\section{Delaying negations}
+
+\section{Well Founded Semantics}
+
+
+
+\bibliographystyle{name}
+\bibliography{swipl}
+
+\printindex
 
 \end{document}
