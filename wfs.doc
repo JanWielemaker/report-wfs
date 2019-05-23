@@ -10,7 +10,7 @@
 
 \begin{document}
 
-\title{Tabling in SWI-Prolog}
+\title{Tabling in SWI-Prolog \\ (for dummies)}
 \author{Jan Wielemaker \\
         CWI, Amsterdam \\
         The Netherlands \\
@@ -21,12 +21,61 @@
 \begin{abstract}
 This technical report describes the tabling implementation of SWI-Prolog.
 This implementation is based on \jargon{delimited continuations} rather
-than the SLG WAM engine as used by XSB Prolog.
+than the SLG WAM engine as used by XSB Prolog. The aim of this report is
+twofold: explain what is needed to implement tabling as simple as
+possible and provide a guideline for understanding the actual
+implementation used by SWI-Prolog.
 \end{abstract}
 
 \tableofcontents
 
 \section{Introduction}
+
+Tabling is an extension to Prolog that turns Prolog into a much more
+\jargon{declarative} language. It makes programs less dependent on the
+ordering of clauses and subgoals in clauses, provides termination in the
+case of \jargon{left recursion} and some tabling implementations realise
+sound \jargon{negation} according to the \jargon{Well Founded
+Semantics}. Dealing with left recursion as well as well founded
+semantics is realised by \jargon{suspending} (delaying) problematic
+goals. Effectively, tabling realises \jargon{bottom up} evaluation of
+problematic goals that contribute to a top down goal evaluation
+strategy. This also hints at two of its three drawbacks: memory usage
+and the need to keep tables consistent with the program.
+
+The third drawback is the complexity. Here we notably refer to the
+complexity of implementing tabling. However, tabling is also complex to
+the user because the user has to decide which predicates of the program
+must be tabled and tabled execution does not follow simple depth first
+left-to-right search. The non-trivial execution order turns an execution
+\jargon{trace} into an incomprehensible series of actions.
+
+The original tabling implementation using the SLG WAM as pioneered in
+XSB Prolog has only been replicated by YAP. B-Prolog implements a
+simpler variant called \jargon{linear tabling}. Ciao implements tabling
+largely through complex program transformation. Many people have tried
+to come up with simpler ways to implement tabling \cite{?,?}. Benoit
+Desouter realised tabling \cite{DBLP:journals/tplp/DesouterDS15} on top
+of \jargon{delimited continuations}
+\cite{DBLP:journals/tplp/SchrijversDDW13} as a fairly small Prolog
+library.
+
+This report describes the current SWI-Prolog tabling implementation.
+This implementation is still based on the work by Benoit Desouter,
+although large parts of the implementation were moved to C for
+performance. The implementation has been extended by Fabrizio Riguzzi to
+deal with \jargon{answer subsumption} and by Jan Wielemaker with help
+from Therase Swift and David S. Warren to deal with well founded
+semantics. The beauty of the continuation based implementation is that
+it is relatively simple and has no consequences for the core Prolog
+virtual machine. This allows us to describe the implementation of
+tabling as capturing and calling continuations rather then modifications
+that turn a WAM implementation into an SLG-WAM implementation.
+
+With this high-level description we provide a reading guide for the
+actual implementation in SWI-Prolog. At the same time we provide a more
+accessible description of implementing tabling which we hope will
+inspire developers and will demistify tabling for a category of users.
 
 \section{Delimited continuations}
 \label{sec:dcont}
