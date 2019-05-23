@@ -12,15 +12,15 @@
 
 \title{Tabling in SWI-Prolog}
 \author{Jan Wielemaker \\
-        VU University of Amsterdam \\
+        CWI, Amsterdam \\
         The Netherlands \\
-        E-mail: \email{J.Wielemaker@vu.nl}}
+        E-mail: \email{J.Wielemaker@cwi.nl}}
 
 \maketitle
 
 \begin{abstract}
-This technical report describes the tabling implemention of SWI-Prolog.
-This implemention is based on \jargon{delimited continuations} rather
+This technical report describes the tabling implementation of SWI-Prolog.
+This implementation is based on \jargon{delimited continuations} rather
 than the SLG WAM engine as used by XSB Prolog.
 \end{abstract}
 
@@ -32,13 +32,13 @@ than the SLG WAM engine as used by XSB Prolog.
 \label{sec:dcont}
 
 Explicit handling of \jargon{continuations} is notably popular in
-functional programming. Tom Schrijvers initiated its adoption in Prolog
-\cite{DBLP:journals/tplp/SchrijversDDW13}. It was first of all
-introduced as a way to realise \jargon{coroutining} in
-Prolog\footnote{The term \jargon{coroutining} is ambiguous in Prolog. It
-is primarily used for goals that are triggered by unification through
-\jargon{attributed variables}.  In this document we do \emph{not} refer
-to \jargon{attributed variables}.}. Delimited continuations are realised
+functional programming. Tom Schrijvers brought them to Prolog
+\cite{DBLP:journals/tplp/SchrijversDDW13}. Continuations were first of
+all introduced as a way to realise \jargon{coroutining} in
+Prolog.\footnote{The term \jargon{coroutining} is ambiguous in Prolog.
+It is primarily used for goals that are triggered by unification through
+\jargon{attributed variables} In this document we do \emph{not} refer to
+\jargon{attributed variables}.}. Delimited continuations are realised
 through two predicates: reset/3 and shift/1.
 
 \begin{description}
@@ -54,12 +54,13 @@ shift/1 is \emph{not} called during the execution of \arg{Goal},
 \end{description}
 
 The behaviour is best described using a demo. Consider the program
-below. Its execution consists of the following steps:
+in \figref{dcont}. Its execution consists of the following steps:
 
 \begin{enumerate}
-    \item Running go/0 calls reset/3, calling p/0.
+    \setlength{\itemsep}{0pt}
+    \item Calling go/0 calls reset/3, calls p/0.
     \item p/0 writes ``Hello''.
-    \item p/0 calls shift/1.  Shift/1's \arg{Ball} unifies with the
+    \item p/0 calls shift/1.  Shift's \arg{Ball} unifies with the
           reset/3 \arg{Ball}.  Shift/1 makes reset/3 succeed binding
 	  \arg{Continuation} to a callable term that runs the remainder
 	  of p/0, in this case \term{writeln}{Y}.
@@ -70,6 +71,7 @@ below. Its execution consists of the following steps:
     \item go/0 completes.
 \end{enumerate}
 
+\begin{figure}[ht]
 \begin{code}
 p :- write('Hello '), shift(get(Y)), writeln(Y).
 
@@ -85,16 +87,20 @@ go :-
 Hello world
 true.
 \end{code}
+    \caption{A program using delimited continuations}
+    \label{fig:dcont}
+\end{figure}
 
-Technically, a continuation is a list if \jargon{environments}, each
+
+Technically, a continuation is a list of \jargon{environments}, each
 consisting of a \jargon{clause}, a \jargon{program counter} pointing
-into the code of this clause and a vector of \jargon{registers} that
-belong to this environment. Calling the continuation implies restoring
-the environment and resume its execution. Provided we make sure the
-referenced clauses are not modified we can, instead of immediately
-calling the continuation as in go/0, store the continuation (for example
-using assertz/1) and run it at as many times as we wish at any point in
-time.
+into the code of this clause and an array of \jargon{registers}
+that belong to this environment. Calling the continuation implies
+restoring the environment and resume its execution. Provided we make
+sure the referenced clauses are not modified we can, instead of
+immediately calling the continuation as in go/0, store the continuation
+(for example using assertz/1) and run it at as many times as we wish at
+any point in time.
 
 
 \section{Tabling using delimited continuations}
@@ -102,10 +108,28 @@ time.
 \subsection{Tabling 0.0}
 
 In its simplest form tabling stores the answer of a call
-\jargon{variant} in a trie. Any subsequent call to this variant uses the
-answers from this trie rather than using the clauses to generate
+\jargon{variant} in a table, represented as a \jargon{trie}. A term
+(goal) is a \jargon{variant} of another term if a renaming of variables
+exists that makes the two terms equivalent. A simple Prolog definition
+of variant is below. The term copying is needed to deal with the case
+where \arg{T1} and \arg{T2} share variables.
+
+\begin{code}
+variant(T1, T2) :-
+    \+ \+ ( copy_term(T1, Ta),
+	    numbervars(Ta, 0, End),
+	    numbervars(T2, 0, End),
+	    Ta == T2 ).
+\end{code}
+
+Any subsequent call that is a variant of the tabled goal the answers
+from this \jargon{answer trie} rather than using the clauses to generate
 answers. This simple form can be illustrated using the program in
-\figref{tabling0}.
+\figref{tabling0}. Note that the tables are stored in a trie-of-tries.
+The global \jargon{variant trie} maps goals to tables (\jargon{answer
+tries}) that contain the answers for this goal. Tabling in general does
+not maintain order of answers and avoids duplicate answers.
+
 
 \begin{figure}[ht]
 \begin{code}
@@ -129,12 +153,7 @@ run_tabled(Goal) :-
     \label{fig:tabling0}
 \end{figure}
 
-Note that the tables are stored in a trie-of-tries. The global
-\jargon{variant trie} maps goals to \jargon{answer tries} that contain
-the answers for this goal. Tabling in general does not maintain order of
-answers and avoids duplicate answers.
-
-The above tabling implementation avoids repetetive evaluation of the
+The above tabling implementation avoids repetitive evaluation of the
 same goal, but is still sensitive to the non-terminating \jargon{left
 recursion}, i.e., if somewhere during the execution of \arg{Goal} a
 variant of \arg{Goal} is triggered the execution will go into an
@@ -220,8 +239,144 @@ of the clause, but \exam{Y < 3} prevents it from producing an answer and
 thus we reached \jargon{fixed point}.
 
 At this moment we must recall \secref{dcont}. ``Remember the remainder
-of the clause'' means that calling a variant of oneself should call
-shift/1!
+of the clause'' means that calling a variant of an incomplete tabled
+goal should call shift/1! Shift passes a ball of the shape
+\term{call_info}{Variant, Worklist}. \arg{Worklist} is a data structure
+associated with the answer trie of the variant that keeps track of
+answers and continuations that must be executed using these answers. It
+is discussed in \secref{worklist}. In the above example, calling
+\term{p}{Y} in the first clause calls \exam{shift(call_info(p(Y),
+WorklistForPVar))}. The \jargon{scheduler} which is also discussed in
+\secref{worklist} can unify \term{p}{Y} with a new answer for the
+variant \term{p}{Var}, run the continuation and add a possible answer to
+the worklist of the variant to which the continuation belongs.
+
+First, we need to capture the shift/1 call. This must be done by the
+\jargon{leader}, the code running the first encounter of a variant. The
+code for running a leader is a refinement of the code running the
+failure driven loop of \figref{tabling05} and shown in
+\figref{leader10}. The predicate activate/3 creates a worklist for the
+variant and starts the failure driven loop guarded by reset/3. If the
+execution does not encounter an incomplete tabled variant
+\arg{Continuation} is \exam{0} and we can add the answer. Otherwise we
+add a \jargon{dependency}\footnote{also referred to as
+\jargon{suspension}} which consists of the continuation and sufficient
+context to bind the variables (\arg{DepVariant}) and, if the
+continuation succeeds, the answer term and the worklist into which to
+put this answer (\arg{Variant} and \arg{Worklist}).
+
+If a new answer becomes available for \arg{DepWorklist}, we can
+propagate this using the steps below.  \jargon{Completion} must
+run this propagation until fixed point is reached.
+
+\begin{enumerate}
+    \setlength{\itemsep}{0pt}
+    \item Unify this answer with \arg{DepVariant},
+    \item Call \arg{Continuation} using a failure driven loop
+    \item For each answer
+    \begin{enumerate}
+	\item Add \arg{Variant} to \arg{Worklist}
+    \end{enumerate}
+\end{enumerate}
+
+\begin{figure}
+\begin{code}
+%!  activate(+Variant, +ATrie, -Worklist)
+%
+%   Start a leader for  filling  the   answer  trie  ATrie  for Variant.
+%   Worklist is a data structure associated  with ATrie used for storing
+%   answer-continuation  pairs  that  must  be    executed  for  running
+%   \jargon{followers}.
+
+activate(Variant, ATrie, Worklist) :-
+    new_worklist(ATrie, Worklist),
+    (   delim(Variant, Worklist),
+	fail
+    ;   true
+    ).
+
+delim(Variant, Worklist) :-
+    reset(Variant, CallInfo, Continuation),
+    (   Continuation == 0	% no shift: we have an answer
+    ->  add_answer(Worklist, Variant)
+    ;   CallInfo = call_info(DepVariant, DepWorklist),
+	add_suspension(
+	    DepWorklist,
+	    dependency(DepVariant, Continuation, Variant, Worklist))
+    ).
+\end{code}
+    \label{fig:leader10}
+    \caption{Running a leader variant using continuations}
+\end{figure}
+
+\subsubsection{The worklist and scheduling component}
+\label{sec:worklist}
+
+A worklist is a data structure associated with an answer trie. It keeps
+track of the dependencies (see \figref{leader10}) that must be executed
+for each answer in this answer trie. Note that the completion process
+needs to run until fixed point is reached and each iteration may add
+answers to each of the answers tries involved in a graph of dependent
+goal variants. The data structure for a worklist is a double linked list
+of answer and dependency clusters. It is maintained as follows
+
+\begin{itemize}
+    \item If a new answer is added to the variant trie, make sure
+    this answer (the trie node) is added to an answer cluster at
+    the head (left side) of the list. If the head of the list is a
+    dependency cluster, first add a new answer cluster as new head.
+    Otherwise simply add the answer to the cluster.
+    \item If a new dependency is added to the worklist, add it to
+    a dependency cluster at the tail (right side) of the list. Again, if
+    the tail is not a dependency cluster, create one.
+\end{itemize}
+
+Now, each answer must be used with each dependency further down the list
+(further to the right).  Propagating a worklist implies:
+
+\begin{enumerate}
+    \setlength{\itemsep}{0pt}
+    \item Take a dependency cluster and find the first answer cluster
+    to its left. This answer cluster contains answers that must be fed
+    into the the dependencies.
+    \item Swap the two clusters, moving the answer cluster to the right
+    of the dependency cluster.
+    \item Combine the answers and dependencies from the clusters.  Note
+    that this process combines all answers with all dependencies,
+    i.e. the Cartesian product.  Note that as a result, new answers
+    may be added at the left and new dependencies at the right.
+\end{enumerate}
+
+To keep track of a collection of mutually dependent variants we use a
+\jargon{scheduling component}. A component keeps track of two sets: a
+set with all worklists that belong to the component and a subset thereof
+of all worklists that have answers that must be combined with
+dependencies which we call the \jargon{active} set.\footnote{The code
+calls this the \jargon{global} worklist set} Whenever an answer is
+added to a worklist, this worklist is added to the active subset.
+Completing a component consists of the following scheduling loop
+
+\begin{enumerate}
+    \setlength{\itemsep}{0pt}
+    \item While the active worklist subset is not empty
+    \begin{enumerate}
+	\item Remove the first worklist from the active subset
+        \item Run the worklist propagation step above until there
+        are no answer clusters left of a dependency cluster.  Note
+        that this process may create answers, which may add worklists
+        to the active set.
+    \end{enumerate}
+    \item Mark all tables in the component as \const{complete}.
+\end{enumerate}
+
+This algorithm completes tabling as it was implemented by Benoit
+Desouter and described in \cite{DBLP:journals/tplp/DesouterDS15}. This
+implementation used a single component that was created by the first
+tabled goal and remained active until that goal and all tabled goals
+that were encountered during the execution of the the outermost goal
+were complete.
+
+
 
 
 

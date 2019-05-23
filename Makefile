@@ -9,3 +9,7 @@ wfs.tex: wfs.doc
 
 wfs.pdf: wfs.tex
 	$(RUNTEX) --pdf wfs
+
+final:	wfs.tex
+	$(RUNTEX) --pdf wfs
+	$(RUNTEX) --pdf wfs
