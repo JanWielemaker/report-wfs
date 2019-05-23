@@ -331,11 +331,6 @@ run this propagation until fixed point is reached.
 \begin{figure}
 \begin{code}
 %!  activate(+Variant, +ATrie, -Worklist)
-%
-%   Start a leader for  filling  the   answer  trie  ATrie  for Variant.
-%   Worklist is a data structure associated  with ATrie used for storing
-%   answer-continuation  pairs  that  must  be    executed  for  running
-%   \jargon{followers}.
 
 activate(Variant, ATrie, Worklist) :-
     new_worklist(ATrie, Worklist),
@@ -425,20 +420,105 @@ tabled goal and remained active until that goal and all tabled goals
 that were encountered during the execution of the the outermost goal
 were complete.
 
+\section{Optimizing: answer skeletons}
+
+Above, the answer tries contain complete \jargon{instances}\footnote{An
+instance of a term is copy of that term in which at least one variable
+is unified, possibly with another variable of the copy.} of the goal
+variant. This is inefficient for variants that have output variables
+before the (instantiated) input arguments. Here, `before' means earlier
+in the top-down and left-right traversal of the goal term. For this
+reason, if a new variant is detected we create a pair consisting of the
+full goal term and a term of the shape \term{ret}{V1, ...}, containing
+all the variables that appear in the variant goal. The answer trie
+contains instances of the ret/\arg{N} term.
+
+\section{Answer subsumption}
+
+\jargon{Answer subsumption} splits the set of arguments of a tabled
+goals into two subsets. One subset is used to determine that a new goal
+is a variant of an existing term and the other subset is used to compute
+a value for each argument that \jargon{subsumes} all generated values.
+For example, the following declaration derives the minimum price for
+each product.
+
+\begin{code}
+:- table product_price(+, min).
+\end{code}
+
+Computing the subsuming answer can also be considered as an
+\jargon{aggregation} process. The initial value is typically the value
+associated with the first answer. Subsequent answers are subsequently
+used to update the aggregated answer.
+
+The implementation uses the declaration to generate a term that is used
+to determine the call variant. For the example above this is
+\verb|'$product_price$2'(Var)|. Note that this name includes the
+\jargon{arity} of the goal because a predicate product_price/3 may have
+the same arity-1 variant. The declaration is also used to generate a
+clause for the predicate \predref{'\$table_update'}{4} that is used to
+compute the next aggregated answer, given the current and a new answer.
+The answer trie node that represents a specific answer is extended with
+a \jargon{record} (see \secref{record} that represents the aggregated
+answer.
+
+TODO: walk through the above with a concrete example.
 
 
+\section{Dynamic strongly connected components}
 
+The implementation of the previous section uses a single scheduling
+component. This implies that any tabled goal that is activated as a
+result of the outermost tabled goal that created the component will be
+completed together with the outermost goal. Incomplete goals are
+fragile. Notably, if choice points from an incomplete goal are pruned
+due to a cut, the table has an incomplete set of answers.  Incomplete
+goals are also slow because we have to use the suspension mechanism.
 
+For these reasons tabled goals should be completed as early as possible.
+Note that variant goals only need to be together in a component if they
+depend on each others answers. Thus, if a fresh tabled variant is
+discovered while tabling is in progress we can create a \jargon{sub
+component}. If none of the tabled goals encountered while completing
+this subcomponent refers to an incomplete variant in another component
+all variant goals in the sub component can be marked as completed before
+we continue with the containing component.
 
+When to use a sub component can be decided using static analysis, but
+this is complex and imprecise because different variants of a goal may
+have different dependencies. Therefore a dynamic solution is preferable.
+This is realised as follows:
 
+\begin{itemize}
+    \setlength{\itemsep}{0pt}
+    \item If a fresh variant is encountered, create a sub component
+    for it.  The newly created worklist points to the new component.
+    \item If a call to an incomplete variant is found
+    \begin{itemize}
+	\item If the worklist of the incomplete variant points at
+	the current sub component, just continue.
+	\item Otherwise the worklist points to a worklist higher
+	in the component hierachy.  Merge all components into the
+	higher component.
+    \end{itemize}
+\end{itemize}
 
-\section{Strongly connected components}
+A component merge can be part of the completion step. The completion
+process is stopped when the component is merged. The leader that
+activated this completion detects the merge and turns itself into a
+follower by calling shift/1. In addition, all answers that are already
+in the answer trie must be made available to the new
+dependency.\footnote{Implemented by \$tbl_wkl_make_follower/1.}
 
 \section{Delaying negations}
 
 \section{Well Founded Semantics}
 
+\section{Recorded terms}
+\label{sec:record}
 
+(possibly an appendix, explaining the representation Prolog terms as
+used for dependencies, answer subsumption, etc.)
 
 \bibliographystyle{name}
 \bibliography{swipl}
