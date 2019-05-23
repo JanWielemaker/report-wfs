@@ -29,6 +29,7 @@ than the SLG WAM engine as used by XSB Prolog.
 \section{Introduction}
 
 \section{Delimited continuations}
+\label{sec:dcont}
 
 Explicit handling of \jargon{continuations} is notably popular in
 functional programming. Tom Schrijvers initiated its adoption in Prolog
@@ -189,29 +190,38 @@ run_tabled(Goal) :-
 
 In this step we will fix the left recursion. We do that, and this is the
 crucial element of all advanced tabling, by \jargon{delaying}
-problematic goals.  First, we introduce a real program, representing
-a tiny fragment of the railway network of The Netherlands.
+problematic goals. First, let us consider the program \exam{p :- p.}
+Under the \jargon{Closed World Assumption} this program has no answers.
+If we change this to the following however, p/0 becomes \const{true}.
 
 \begin{code}
-track(amsterdam, haarlem).
-track(amsterdam, schiphol).
-track(schiphol,  leiden).
-track(haarlem,   leiden).
+p :- p.
+p.
 \end{code}
 
-Of course, if there is a track from $A$ to $B$, we can also use it the
-other way around. The rule below adds this knowledge. Added as first
-rule we have a left recursion problem immediately. As last rule we first
-get some answers, but eventually the program goes into an infinite
-recursion.
+This might make us believe we can simply fail if we find a call variant
+(the panic/1 case above). That is not true. Consider the program below.
+this has three answers: \exam{p(1)}, \exam{p(2)} and \exam{p(3)}.
 
 \begin{code}
-track(A, B) :- track(B, A).
+p(X) :- p(Y), Y < 3, X is Y+1.
+p(1).
 \end{code}
 
-As a first step, we observe that \exam{p :- p.} produces no solutions.
+How do we get these answers? We \jargon{delay} if we find an incomplete
+variant, i.e. if we call \term{p}{Y} in the first clause. Delaying
+remembers the ``given an answer $Y$ for \term{p}{Y}, we must execute the
+remainder of the clause to get a new answer''. Execution continues with
+the remainder of the program, producing \exam{p(1)}. Now we can execute
+the delayed remainder of the clause, producing \exam{p(2)}, which can be
+used to execute the delayed remainder of the clause once more to produce
+\exam{p(3)}. \exam{p(3)} is again used to execute the delayed remainder
+of the clause, but \exam{Y < 3} prevents it from producing an answer and
+thus we reached \jargon{fixed point}.
 
-
+At this moment we must recall \secref{dcont}. ``Remember the remainder
+of the clause'' means that calling a variant of oneself should call
+shift/1!
 
 
 
