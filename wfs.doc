@@ -716,24 +716,98 @@ to belong to the third truth value (indeterminate).
 \subsection{Implementation details for WFS}
 \label{sec:implwfs}
 
-First of all, we need to keep track of the assumptions made such that if
-an answer is produced it can be added with the appropriate condition.
-There are two sources for assumptions: the decision to assume a negative
-literal holds and using a conditional answer from an answer trie.
-SWI-Prolog handles these seperate.
+First of all, we need to keep track of the conditions introduced by
+assuming a negative literal is true or using a conditional answer from a
+table. Similar to the XSB \jargon{delay register} we use something that
+is is effectively the same as a backtrackable global variable (see
+b_setval/2 and b_getval/2), but manipulated at a lower level.  This
+list is updated by
 
+\begin{itemize}
+    \item Using a conditional answer from a completed trie.  These are always
+    \jargon{positive delay elements}.
+    \item Getting work from a worklist.  Normally this is an answer/dependency
+    pair and the answer is handled the same as above. Assuming a
+    negative literal to be true however is also handled by this code,
+    in which case a \jargon{negative delay element} is pushed.
+\end{itemize}
 
+There are three different delay elements that are represented by the
+following Prolog terms:
 
+\begin{itemize}
+    \item \arg{ATrie} (an answer trie) represents a negative delay element
+    for the variant goal represented by this answer trie.
+    \item \arg{ATrie}+\arg{ANode} (a term \functor{+}{2} holding an
+    answer trie and an answer node in this trie) represents a ground
+    positive delay element.
+    \item \arg{ATrie}+\arg{Answer} (as above, but using an answer term)
+    is used for non-ground positive delay elements. This is required for
+    e.g., \exam{q(X) :- p(X), X = 1}, where p/1 is a tabled goal
+    and \term{p}{Var} has a conditional answer. This must add
+    \term{q}{1} with condition \term{p}{1} rather than condition
+    \term{p}{Var}.
+\end{itemize}
 
+Finally, if the execution is suspended we must restore the same delay
+list for running the continuation. This requires us to extend the
+\functor{dependency}{4} term in \figref{leader10} to
+\functor{dependency}{5}, where the last argument holds the delay list at
+the moment the dependency is created.
 
+If an answer is added and the delay list is not empty it is added as a
+conditional answer or, if the answer is already in the answer trie, its
+condition is updated. In general the condition is a disjunction of
+conjunctions. If an unconditional answer is already present the
+conditional answer is ignored. If a conditional answer is present and
+the new answer is unconditional, the condition is removed. Finally, if
+the condition is different from any already registered condition the
+disjunction is extended with a new conjunction.
 
+Each delay element is represented by a C structure consisting of the
+items below. A conjunction is represented as an array of such structures
+and the disjunction as an array of conjunctions.
+
+\begin{itemize}
+    \item A pointer to an answer trie.
+    \item Either \const{NULL} (negative delay element), a pointer to
+    an answer node (positive delay element with ground answer)
+    or a record (see \secref{record}) (positive delay element with a
+    non-ground answer).
+\end{itemize}
+
+If a condition is added, we add the conditional answer (a trie node) to
+the dynamic array of depending answers associated with each worklist
+referenced in the condition. For example if \exam{p :- tnot(q), r} adds
+a condition \exam{tnot(q),r) to the answer of p/0 this answer is
+associated with the worklists for q/0 and r/0. This representation,
+which is similar to the one used by XSB \cite{SAGONAS20001} allows for
+executing the simplification process described above with limited
+search. The only search required is finding the right delay element
+inside the delay condition associated with an answer.
 
 
 \section{Recorded terms}
 \label{sec:record}
 
-(possibly an appendix, explaining the representation Prolog terms as
-used for dependencies, answer subsumption, etc.)
+At various places the tabling implementation stores Prolog terms on the
+program heap (malloc() area). Traditionally SWI-Prolog uses a
+\jargon{record} for that. Records are used by findall/3, the classic
+recorded database (recorda/3) and C copy that wishes to maintain a copy
+of an arbitrary Prolog term. A record serializes a term as a sequence of
+instructions and contains size information that allows pre-allocating
+the required space before building the term.
+
+The tabling implementation primarily uses Prolog terms on the program
+heap for dependencies (the \functor{dependency}{5} term). Restoring
+dependencies is a frequent operation, typically much more frequent than
+creating a dependency. For this reason we introduced \jargon{fast_heap}
+terms. A fast_heap term represents a term exactly as it appears on the
+global stack, together with \jargon{relocation data}. Fast heap terms
+are created using duplicate_term/2 (a copy_term/2 variant that copies
+ground subterms), copying the result to the heap and discarding the
+copy. Restoring such a term implies a memcpy() followed by a adding the
+same offset to each element in the relocation data.
 
 \bibliographystyle{name}
 \bibliography{swipl}
