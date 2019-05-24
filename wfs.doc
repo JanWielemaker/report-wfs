@@ -779,7 +779,7 @@ and the disjunction as an array of conjunctions.
 If a condition is added, we add the conditional answer (a trie node) to
 the dynamic array of depending answers associated with each worklist
 referenced in the condition. For example if \exam{p :- tnot(q), r} adds
-a condition \exam{tnot(q),r) to the answer of p/0 this answer is
+a condition \exam{tnot(q),r} to the answer of p/0 this answer is
 associated with the worklists for q/0 and r/0. This representation,
 which is similar to the one used by XSB \cite{SAGONAS20001} allows for
 executing the simplification process described above with limited
