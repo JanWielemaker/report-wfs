@@ -14,34 +14,43 @@
 \author{Jan Wielemaker \\
         CWI, Amsterdam \\
         The Netherlands \\
-        E-mail: \email{J.Wielemaker@cwi.nl}}
+        E-mail: \email{J.Wielemaker@cwi.nl} \\[1ex]
+	Theresa Swift \\
+	David S Warren \\
+	Fabrizio Riguzzi}
 
 \maketitle
 
 \begin{abstract}
 This technical report describes the tabling implementation of SWI-Prolog.
 This implementation is based on \jargon{delimited continuations} rather
-than the SLG WAM engine as used by XSB Prolog. The aim of this report is
-twofold: explain what is needed to implement tabling as simple as
-possible and provide a guideline for understanding the actual
-implementation used by SWI-Prolog.
+than the SLG WAM engine as used by XSB Prolog. SWI-Prolog is the second
+system to use tabling not only for improving termination and avoiding
+recomputation, but also to provide sound negation by implementing well
+founded negation.
+
+The aim of this report is twofold: explain what is needed to implement
+tabling with well founded semantics as simple as possible and provide a
+guideline for understanding the actual implementation used by
+SWI-Prolog.
 \end{abstract}
 
 \tableofcontents
 
 \section{Introduction}
 
-Tabling is an extension to Prolog that turns Prolog into a much more
-\jargon{declarative} language. It makes programs less dependent on the
-ordering of clauses and subgoals in clauses, provides termination in the
-case of \jargon{left recursion} and some tabling implementations realise
-sound \jargon{negation} according to the \jargon{Well Founded
-Semantics}. Dealing with left recursion as well as well founded
-semantics is realised by \jargon{suspending} (delaying) problematic
-goals. Effectively, tabling realises \jargon{bottom up} evaluation of
-problematic goals that contribute to a top down goal evaluation
-strategy. This also hints at two of its three drawbacks: memory usage
-and the need to keep tables consistent with the program.
+Tabling \cite{iclp95*697} is an extension to Prolog that turns Prolog
+into a much more \jargon{declarative} language. It makes programs less
+dependent on the ordering of clauses and subgoals in clauses, provides
+termination in the case of \jargon{left recursion} and some tabling
+implementations realise sound \jargon{negation} according to the
+\jargon{Well Founded Semantics}. Dealing with left recursion as well as
+well founded semantics is realised by \jargon{suspending} (delaying)
+problematic goals. Effectively, tabling realises \jargon{bottom up}
+evaluation of problematic goals that contribute to a top down goal
+evaluation strategy. This also hints at two of its three drawbacks:
+memory usage and the need to keep tables consistent with the program
+\cite{DBLP:journals/tplp/Swift14}.
 
 The third drawback is the complexity. Here we notably refer to the
 complexity of implementing tabling. However, tabling is also complex to
@@ -51,21 +60,24 @@ left-to-right search. The non-trivial execution order turns an execution
 \jargon{trace} into an incomprehensible series of actions.
 
 The original tabling implementation using the SLG WAM as pioneered in
-XSB Prolog has only been replicated by YAP. B-Prolog implements a
-simpler variant called \jargon{linear tabling}. Ciao implements tabling
-largely through complex program transformation. Many people have tried
-to come up with simpler ways to implement tabling \cite{?,?}. Benoit
+XSB Prolog has only been replicated by YAP
+\cite{DBLP:journals/tplp/CostaRD12}. B-Prolog implements a simpler
+variant called \jargon{linear tabling}
+\cite{DBLP:journals/tplp/ZhouSS08}. Ciao implements tabling largely
+through complex program transformation \cite{DBLP:conf/padl/GuzmanCHSR08}. Many people have tried
+to come up with simpler ways to implement tabling \cite{DBLP:journals/fgcs/DemoenS00}. Benoit
 Desouter realised tabling \cite{DBLP:journals/tplp/DesouterDS15} on top
 of \jargon{delimited continuations}
 \cite{DBLP:journals/tplp/SchrijversDDW13} as a fairly small Prolog
 library.
 
 This report describes the current SWI-Prolog tabling implementation.
-This implementation is still based on the work by Benoit Desouter,
+This implementation is based on the work by Benoit Desouter,
 although large parts of the implementation were moved to C for
 performance. The implementation has been extended by Fabrizio Riguzzi to
 deal with \jargon{answer subsumption} and by Jan Wielemaker with help
-from Therase Swift and David S. Warren to deal with well founded
+from Therase Swift and David S. Warren
+\cite{DBLP:journals/toplas/SagonasS98,SAGONAS20001} to deal with well founded
 semantics. The beauty of the continuation based implementation is that
 it is relatively simple and has no consequences for the core Prolog
 virtual machine. This allows us to describe the implementation of
@@ -420,7 +432,9 @@ tabled goal and remained active until that goal and all tabled goals
 that were encountered during the execution of the the outermost goal
 were complete.
 
-\section{Optimizing: answer skeletons}
+\section{Optimizations}
+
+\subsection{Answer skeletons}
 
 Above, the answer tries contain complete \jargon{instances}\footnote{An
 instance of a term is copy of that term in which at least one variable
@@ -432,6 +446,43 @@ reason, if a new variant is detected we create a pair consisting of the
 full goal term and a term of the shape \term{ret}{V1, ...}, containing
 all the variables that appear in the variant goal. The answer trie
 contains instances of the ret/\arg{N} term.
+
+\subsection{Early completion}
+
+A table for a ground variant can be completed on the first answer. This
+can be achieved by wrapping the goal in once/1 if the above answer
+skeleton computation reveals the variant is ground.
+
+In \secref{WFS}, where the implementation of well founded semantics
+is discussed, answer nodes can be conditional. In this case the single
+answer may be proved with different conditions and we can only apply
+early completion after an unconditional answer has been found and
+thus wrapping the goal in once/1 no longer works. The
+predicate delim/2 in \figref{leader10} is changed into the code in
+\figref{earlycompletion}, where add_answer/3 unifies \arg{Complete}
+with \const{!} if the answer is unconditional.
+
+\begin{figure}
+\begin{code}
+delim(Variant, Worklist) :-
+    reset(Variant, CallInfo, Continuation),
+    (   Continuation == 0	% no shift: we have an answer
+    ->  add_answer(Worklist, Variant, Complete),
+        (   Complete == !
+	->  !,
+	    fail
+        ;   true
+	)
+    ;   CallInfo = call_info(DepVariant, DepWorklist),
+	add_suspension(
+	    DepWorklist,
+	    dependency(DepVariant, Continuation, Variant, Worklist))
+    ).
+\end{code}
+    \caption{Delim/3 for early completion}
+    \label{fig:earlycompletion}
+\end{figure}
+
 
 \section{Answer subsumption}
 
@@ -787,16 +838,39 @@ search. The only search required is finding the right delay element
 inside the delay condition associated with an answer.
 
 
+\section{Some notes on performance}
+\label{sec:performance}
+
+TODO
+
+\begin{itemize}
+    \item Split aspects
+    \begin{itemize}
+	\item Answer reuse from an established table
+	\item Creating a dependency
+	\begin{itemize}
+	    \item Depending on number of frames
+	    \item Depending on size of data
+	\end{itemize}
+	\item Pairing an answer with a dependency
+	\item Adding an answer to the tables
+    \end{itemize}
+    \item Theoretical comparison to CHAT
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\appendix
+
 \section{Recorded terms}
 \label{sec:record}
 
 At various places the tabling implementation stores Prolog terms on the
 program heap (malloc() area). Traditionally SWI-Prolog uses a
 \jargon{record} for that. Records are used by findall/3, the classic
-recorded database (recorda/3) and C copy that wishes to maintain a copy
-of an arbitrary Prolog term. A record serializes a term as a sequence of
-instructions and contains size information that allows pre-allocating
-the required space before building the term.
+recorded database (recorda/3) and C code that wishes to maintain a
+copy of an arbitrary Prolog term. A record serializes a term as a
+sequence of instructions and contains size information that allows
+pre-allocating the required space before building the term.
 
 The tabling implementation primarily uses Prolog terms on the program
 heap for dependencies (the \functor{dependency}{5} term). Restoring
