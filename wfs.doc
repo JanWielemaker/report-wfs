@@ -451,7 +451,8 @@ contains instances of the ret/\arg{N} term.
 
 A table for a ground variant can be completed on the first answer. This
 can be achieved by wrapping the goal in once/1 if the above answer
-skeleton computation reveals the variant is ground.
+skeleton computation reveals the variant is ground, i.e., the skeleton
+is the atom \const{ret}.
 
 In \secref{WFS}, where the implementation of well founded semantics
 is discussed, answer nodes can be conditional. In this case the single
@@ -510,7 +511,7 @@ the same arity-1 variant. The declaration is also used to generate a
 clause for the predicate \predref{'\$table_update'}{4} that is used to
 compute the next aggregated answer, given the current and a new answer.
 The answer trie node that represents a specific answer is extended with
-a \jargon{record} (see \secref{record} that represents the aggregated
+a \jargon{record} (see \secref{record}) that represents the aggregated
 answer.
 
 TODO: walk through the above with a concrete example.
@@ -532,14 +533,14 @@ Note that variant goals only need to be together in a component if they
 depend on each others answers. Thus, if a fresh tabled variant is
 discovered while tabling is in progress we can create a \jargon{sub
 component}. If none of the tabled goals encountered while completing
-this subcomponent refers to an incomplete variant in another component
+this subcomponent refers to an incomplete variant in another component,
 all variant goals in the sub component can be marked as completed before
 we continue with the containing component.
 
 When to use a sub component can be decided using static analysis, but
 this is complex and imprecise because different variants of a goal may
-have different dependencies. Therefore a dynamic solution is preferable.
-This is realised as follows:
+have different dependencies. Therefore, a dynamic solution is
+preferable. This is realised as follows:
 
 \begin{itemize}
     \setlength{\itemsep}{0pt}
@@ -555,31 +556,32 @@ This is realised as follows:
     \end{itemize}
 \end{itemize}
 
-A component merge can be part of the completion step. The completion
-process is stopped when the component is merged. The leader that
-activated this completion detects the merge and turns itself into a
-follower by calling shift/1. In addition, all answers that are already
-in the answer trie must be made available to the new
+A component merge can occur while doing normal clause resolution and can
+be part of the completion step. If the merge happens during clause
+resolution, no special action is required. If it happens during
+completion, completion is stopped after the component is merged. The
+leader that activated this completion detects the merge and turns itself
+into a follower by calling shift/1. In addition, all answers that are
+already in the answer trie must be made available to the new
 dependency.\footnote{Implemented by \$tbl_wkl_make_follower/1.}
 
 \section{Dynamic statified negation}
 \label{sec:negdstrat}
 
-Without precautions, tabling is incompatible with negation, unless the
-negated goal has no dependencies on incomplete goals higher in the call
-tree. If there are no such dependencies, the eager completion as
-described in \secref{SCC} is sufficient to make negation work. This
-section describes how to make negation sound for a large class of
-programs: those where negation can be \jargon{dynamically stratified}.
-\jargon{Stratification} implies (re)organizing the program in
-independent layers such that we can solve the bottom layer
-\jargon{statum} unambiguously and subsequently propagate the results to
-the higher layers. Consider the program below. This problem is
-\emph{not} stratified as it involves infinite recursion. It can be
-solved using tabling because tabling will suspend on the recursive goal
-to \term{connected}{B,A}, fill the table using the facts and then
-execute the continuation containing \term{connected}{B,A} for all the
-derived one-directional connections.
+Without precautions, tabling is incompatible with negation. Only if the
+negated goal is ground and has no dependencies on incomplete goals
+higher in the call tree, using dynamic SCCs (see \secref{SCC}) suffices
+to realise sound negation. This section describes how to make negation
+sound for a larger class of programs: those where negation can be
+\jargon{dynamically stratified}. \jargon{Stratification} implies
+(re)organizing the program in independent layers (\jargon{statum}) such
+that we can solve the bottom layer unambiguously and subsequently
+propagate the results to the higher layers. Consider the program below.
+This problem is \emph{not} stratified as it involves infinite recursion.
+It can be solved using tabling because tabling will suspend on the
+recursive goal to \term{connected}{B,A}, fill the table using the facts
+and then execute the continuation containing \term{connected}{B,A} for
+all the derived one-directional connections.
 
 \begin{code}
 connected(A,B) :- connected(B,A).
@@ -609,9 +611,9 @@ program. Negation requires special attention. We can decide on a
 negative literal under two condition, (a) we have an answer (in our
 table) that makes the negation false or (b) we have no answer and there
 is no execution path (dependent suspended node) that can produce one. In
-the latter case the negation is true and this fact can be propagated
-through obtain the final result. In all other cases we use the central
-technique of tabling: delay what you cannot decide upon.
+the latter case the negation is true and this fact can be propagated to
+obtain the final result. In all other cases we use the central technique
+of tabling: delay what cannot be decided at this point of the execution.
 
 Tabled negation is implemented by tnot/1. \Figref{tnotdstrat} shows the
 implementation dealing with stratified negation. The implementation of
@@ -621,7 +623,7 @@ tnot/1 is further refined in \secref{WFS}.  The steps are:
     \setlength{\itemsep}{0pt}
     \item If we can decide, we are done.  This is the case if the answer
     trie has an answer or its complete (and empty).
-    \item Otherwise if the variant is fresh, run it and redo the
+    \item Otherwise, if the variant is fresh, run it and redo the
     decision process of step (1).
     \item If the variant is incomplete call negation_suspend/2, creating a
     \jargon{negative suspension node}.
@@ -699,11 +701,13 @@ David S Warren.}.
 
 The implementation of WFS takes the delay strategy to a next level.
 Instead of simply assuming that a negative literal without answers is
-true, the negative literal is now \jargon{conditionally true}. In other
-words, just as in \secref{negdstrat} we continue the execution of
-negative literals without answers. Any answer that results from running
-these continuations though is stored as a \jargon{conditional answer}.
-Consider the following program:
+true, the negative literal is now \jargon{assumed to be true} and the
+consequences derived from this assumption are recorded as
+\jargon{conditional answers}. In other words, just as in
+\secref{negdstrat} we continue the execution of negative literals
+without answers while keeping track of the assumptions made. Any answer
+that results from running these continuations is stored along with the
+assumptions. Consider the following program:
 
 \begin{code}
 p :- tnot(q).
@@ -713,19 +717,20 @@ q :- tnot(p), fail.
 It is obvious that normal tabling cannot resolve any of these goals.
 Dynamic stratification will produce an answer that differs on whether
 q/0 is considered false or p/0 is considered false. With
-\jargon{delaying} we assume q/0 is false, deriving that p/0 is true if
-q/0 is false. Next, we assume that p/0 is false, which does not derive
-anything due to the \exam{fail}. Now q/0 is no answers, neither
-conditional or unconditional and is thus false. This can be propagated,
+\jargon{delaying} we \emph{assume} q/0 is false, deriving that p/0 is
+true if q/0 is false. Next, we assume that p/0 is false, which does not
+derive anything due to the \exam{fail}. Now q/0 is no answers, neither
+conditional nor unconditional and is thus false. This can be propagated,
 making the answer for q/0 unconditionally true because it condition (q/0
-being false) is satified.
+being false) is now satified.
 
-The above used negative conditions. There are also positive conditions.
-These are created if an answer is produced due to using a conditional
-answer. Consider the program below. This is nearly identical to the one
-above. At some point p/0 gets a conditional answer (on tnot(q)). This
-answer is propagated to r/0, but as p/0 is a conditional answer r/0 is
-registered to be true iff the answer for p/0 becomes unconditional.
+The above used only negative conditions. There are also positive
+conditions. These are created if an answer is produced due to using a
+conditional answer from a table. Consider the program below. This is
+nearly identical to the one above. At some point p/0 gets a conditional
+answer (on tnot(q)). This answer is propagated to r/0, but as p/0 is a
+conditional answer r/0 is registered to be true iff the answer for p/0
+becomes unconditional.
 
 \begin{code}
 r :- p.
@@ -737,11 +742,13 @@ Completion under well founded semantics consists of the following steps:
 
 \begin{enumerate}
     \setlength{\itemsep}{0pt}
-    \item Normal tabled completion
+    \item Normal tabled completion.
     \item Continue undecided negative literals, possibly producing
     conditional answers.  New answers are propagated using the normal
     tabled completion, but the results are conditional on these
-    answers.
+    answers.  Note that this runs previously unexplored code and thus
+    may involve all the normal tabled execution, including component
+    merging, etc.
     \item \jargon{Simplification}
     \begin{enumerate}
         \item Find negative literals without answers (conditional
@@ -755,14 +762,14 @@ Completion under well founded semantics consists of the following steps:
     result from \jargon{positive loops}, e.g., \exam{p :- q.  q :- p.}
     The elimination is done using a tabled Prolog program that reasons
     over the conditional answers.\footnote{See \file{boot/tabling.pl},
-    answer_completion/1}. Removed answers may lead to further
+    answer_completion/1} Removed answers may lead to further
     simplification, which in turn may make further answer completion
     possible.  The last two steps must be executed until fixed point
     is reached.
 \end{enumerate}
 
 Answers that remain conditional after the above process are considered
-to belong to the third truth value (indeterminate).
+to belong to the third truth value (undefined).
 
 \subsection{Implementation details for WFS}
 \label{sec:implwfs}
