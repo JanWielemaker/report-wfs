@@ -719,9 +719,9 @@ Dynamic stratification will produce an answer that differs on whether
 q/0 is considered false or p/0 is considered false. With
 \jargon{delaying} we \emph{assume} q/0 is false, deriving that p/0 is
 true if q/0 is false. Next, we assume that p/0 is false, which does not
-derive anything due to the \exam{fail}. Now q/0 is no answers, neither
+derive anything due to the \exam{fail}. Now q/0 has no answers, neither
 conditional nor unconditional and is thus false. This can be propagated,
-making the answer for q/0 unconditionally true because it condition (q/0
+making the answer for p/0 unconditionally true because it condition (q/0
 being false) is now satified.
 
 The above used only negative conditions. There are also positive
