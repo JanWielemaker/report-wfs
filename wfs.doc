@@ -782,28 +782,39 @@ b_setval/2 and b_getval/2), but manipulated at a lower level.  This
 list is updated by
 
 \begin{itemize}
-    \item Using a conditional answer from a completed trie.  These are always
-    \jargon{positive delay elements}.
+    \item Using a conditional answer from a completed answer trie.
+    In this case we add a condition on this specific answer to the
+    delay list. For example, consider an answer trie for \term{p}{a,X}
+    from which we use the conditional answer \exam{X = 3}.  We now
+    add a condition on \term{p}{a,3}.  This is called a
+    \jargon{positive delay elements}.  Note that we should not add the
+    condition for the answer \term{p}{a,3} to the delay list as this
+    condition may change.
+
     \item Getting work from a worklist.  Normally this is an answer/dependency
     pair and the answer is handled the same as above. Assuming a
     negative literal to be true however is also handled by this code,
-    in which case a \jargon{negative delay element} is pushed.
+    in which case a \jargon{negative delay element} is pushed, e.g.,
+    \term{tnot}{q}.
 \end{itemize}
 
-There are three different delay elements that are represented by the
-following Prolog terms:
+We distinguish three different delay elements (negative, ground positive
+and non-ground positive) that are represented by the following Prolog
+terms:
 
 \begin{itemize}
     \item \arg{ATrie} (an answer trie) represents a negative delay element
     for the variant goal represented by this answer trie.
+
     \item \arg{ATrie}+\arg{ANode} (a term \functor{+}{2} holding an
     answer trie and an answer node in this trie) represents a ground
     positive delay element.
+
     \item \arg{ATrie}+\arg{Answer} (as above, but using an answer term)
     is used for non-ground positive delay elements. This is required for
-    e.g., \exam{q(X) :- p(X), X = 1}, where p/1 is a tabled goal
+    e.g., \exam{q(X) :- p(X), X = a}, where p/1 is a tabled goal
     and \term{p}{Var} has a conditional answer. This must add
-    \term{q}{1} with condition \term{p}{1} rather than condition
+    \term{q}{1} with condition \term{p}{a} rather than condition
     \term{p}{Var}.
 \end{itemize}
 
@@ -828,11 +839,27 @@ and the disjunction as an array of conjunctions.
 
 \begin{itemize}
     \item A pointer to an answer trie.
-    \item Either \const{NULL} (negative delay element), a pointer to
-    an answer node (positive delay element with ground answer)
-    or a record (see \secref{record}) (positive delay element with a
-    non-ground answer).
+    \item Either \const{NULL} (negative delay element) or a pointer to
+    an answer node (positive delay elements).  Note that we have
+    different representations for ground and non-ground representations
+    of answers (see above).  Now, we need to distinguish three cases:
+    \begin{itemize}
+        \item The Prolog delay list used an answer trie node to represent
+	the ground answer.  We can simply use that node.
+	\item The Prolog delay list used an answer term to represent a
+	non-ground answer.  We lookup the answer term in the answer trie
+        and use the resulting node. We collect the answers that are
+	still not ground while building the conjunction.
+
+	Add the end, if one or more elements of the conjunction is not
+	ground, we add a Prolog term (record) to the conjunction that
+	captures the variable bindings of the answer template for the
+	current answer with the non-ground answer templates of the
+	conditions.  We need this representation to generate proper
+	variable bindings for non-ground residual programs.
+    \end{itemize}
 \end{itemize}
+
 
 If a condition is added, we add the conditional answer (a trie node) to
 the dynamic array of depending answers associated with each worklist
@@ -843,6 +870,8 @@ which is similar to the one used by XSB \cite{SAGONAS20001} allows for
 executing the simplification process described above with limited
 search. The only search required is finding the right delay element
 inside the delay condition associated with an answer.
+
+TODO: example
 
 
 \section{Some notes on performance}
