@@ -1,11 +1,10 @@
-SWIPL=$(HOME)/src/swipl-devel
-DOC2TEX=$(SWIPL)/man/doc2tex
-RUNTEX=$(SWIPL)/man/runtex
+DOC2TEX=swipl doc2tex.pl
+RUNTEX=./runtex
 
 all: wfs.pdf
 
 wfs.tex: wfs.doc
-	$(DOC2TEX) wfs.doc > wfs.tex
+	$(DOC2TEX) wfs.doc wfs.tex
 
 wfs.pdf: wfs.tex
 	$(RUNTEX) --pdf wfs
@@ -13,3 +12,6 @@ wfs.pdf: wfs.tex
 final:	wfs.tex
 	$(RUNTEX) --pdf wfs
 	$(RUNTEX) --pdf wfs
+
+clean:
+	rm -f *~ wfs.tex
