@@ -3,6 +3,7 @@
 \usepackage{pl}
 \usepackage{plpage}
 \usepackage{html}
+\newcommand{\TBD}[1]{\begin{quote}TBD: #1\end{quote}}
 \sloppy
 \makeindex
 
@@ -42,9 +43,9 @@ SWI-Prolog.
 Tabling \cite{iclp95*697} is an extension to Prolog that turns Prolog
 into a much more \jargon{declarative} language. It makes programs less
 dependent on the ordering of clauses and subgoals in clauses, provides
-termination in the case of \jargon{left recursion} and some tabling
+termination in the case of \jargon{self recursion} and some tabling
 implementations realise sound \jargon{negation} according to the
-\jargon{Well Founded Semantics}. Dealing with left recursion as well as
+\jargon{Well Founded Semantics}. Dealing with self recursion as well as
 well founded semantics is realised by \jargon{suspending} (delaying)
 problematic goals. Effectively, tabling realises \jargon{bottom up}
 evaluation of problematic goals that contribute to a top down goal
@@ -73,14 +74,14 @@ library.
 
 This report describes the current SWI-Prolog tabling implementation.
 This implementation is based on the work by Benoit Desouter,
-although large parts of the implementation were moved to C for
-performance. The implementation has been extended by Fabrizio Riguzzi to
-deal with \jargon{answer subsumption} and by Jan Wielemaker with help
-from Therase Swift and David S. Warren
-\cite{DBLP:journals/toplas/SagonasS98,SAGONAS20001} to deal with well founded
-semantics. The beauty of the continuation based implementation is that
-it is relatively simple and has no consequences for the core Prolog
-virtual machine. This allows us to describe the implementation of
+although large parts of the implementation were moved to C to achieve
+better performance. The implementation has been extended by Fabrizio
+Riguzzi to deal with \jargon{answer subsumption} and by Jan Wielemaker
+with help from Therase Swift and David S. Warren
+\cite{DBLP:journals/toplas/SagonasS98,SAGONAS20001} to deal with well
+founded semantics. The beauty of the continuation based implementation
+is that it is relatively simple and has no consequences for the core
+Prolog virtual machine. This allows us to describe the implementation of
 tabling as capturing and calling continuations rather then modifications
 that turn a WAM implementation into an SLG-WAM implementation.
 
@@ -107,11 +108,11 @@ through two predicates: reset/3 and shift/1.
 \nodescription
     \predicate{shift}{1}{+Ball}
 Run \arg{Goal}. If shift/1 is called somewhere during the evaluation of
-\arg{Goal} and shift's \arg{Ball} unifies with our \arg{Ball}, unify
-\arg{Continuation} with a callable term that captures the remainder of
-the execution of \arg{Goal} and make the reset/3 goal succeed. If
-shift/1 is \emph{not} called during the execution of \arg{Goal},
-\arg{Continuation} is unified with the integer 0.
+\arg{Goal} and shift's \arg{Ball} unifies with the reset/3 \arg{Ball},
+unify \arg{Continuation} with a callable term that captures the
+remainder of the execution of \arg{Goal} and make the reset/3 goal
+succeed. If shift/1 is \emph{not} called during the execution of
+\arg{Goal}, \arg{Continuation} is unified with the integer 0.
 \end{description}
 
 The behaviour is best described using a demo. Consider the program
@@ -183,13 +184,14 @@ variant(T1, T2) :-
 	    Ta == T2 ).
 \end{code}
 
-Any subsequent call that is a variant of the tabled goal the answers
-from this \jargon{answer trie} rather than using the clauses to generate
-answers. This simple form can be illustrated using the program in
-\figref{tabling0}. Note that the tables are stored in a trie-of-tries.
-The global \jargon{variant trie} maps goals to tables (\jargon{answer
-tries}) that contain the answers for this goal. Tabling in general does
-not maintain order of answers and avoids duplicate answers.
+Any subsequent call that is a variant of an already tabled goal uses
+the answers from this \jargon{answer trie} rather than using the clauses
+to generate answers. This simple form can be illustrated using the
+program in \figref{tabling0}. Note that the tables are stored in a
+trie-of-tries. The global \jargon{variant trie} maps goals to tables
+(\jargon{answer tries}) that contain the answers for this goal. Tabling
+in general does not maintain order of answers and avoids duplicate
+answers.
 
 
 \begin{figure}[ht]
@@ -215,7 +217,7 @@ run_tabled(Goal) :-
 \end{figure}
 
 The above tabling implementation avoids repetitive evaluation of the
-same goal, but is still sensitive to the non-terminating \jargon{left
+same goal, but is still sensitive to the non-terminating \jargon{self
 recursion}, i.e., if somewhere during the execution of \arg{Goal} a
 variant of \arg{Goal} is triggered the execution will go into an
 infinite recursion.
@@ -223,7 +225,7 @@ infinite recursion.
 
 \subsection{Tabling 0.5}
 
-Tabling 0.5 detects non-termination due to left recursion. It achieves
+Tabling 0.5 detects non-termination due to self recursion. It achieves
 this goal by detecting it is calling a variant of itself as a subgoal.
 The first step is to associate three states for each variant:
 \jargon{fresh} means we see this variant for the first time,
@@ -231,7 +233,7 @@ The first step is to associate three states for each variant:
 \jargon{incomplete} implies we started the failure driven loop of the
 second clause of \figref{tabling0}, but did not yet finish it. We first
 introduce two new predicates to keep our code concise. After that we can
-refine our program to detect the problematic left recursion as in
+refine our program to detect the problematic self recursion as in
 \figref{tabling05}
 
 \begin{description}
@@ -258,21 +260,21 @@ run_tabled(Goal) :-
         ;   complete_table(ATrie)
 	),
 	trie_gen(ATrie, Goal)
-    ;   panic("Left recursion!")
+    ;   panic("Self recursion!")
     ).
 \end{code}
-    \caption{Tabling 0.5: detect left recursion}
+    \caption{Tabling 0.5: detect self recursion}
     \label{fig:tabling05}
 \end{figure}
 
 
 \subsection{Tabling 1.0}
 
-In this step we will fix the left recursion. We do that, and this is the
+In this step we will fix the self recursion. We do that, and this is the
 crucial element of all advanced tabling, by \jargon{delaying}
 problematic goals. First, let us consider the program \exam{p :- p.}
-Under the \jargon{Closed World Assumption} this program has no answers.
-If we change this to the following however, p/0 becomes \const{true}.
+This program has no answers. If we change this to the following however,
+p/0 becomes \const{true}.
 
 \begin{code}
 p :- p.
@@ -289,7 +291,7 @@ p(1).
 \end{code}
 
 How do we get these answers? We \jargon{delay} if we find an incomplete
-variant, i.e. if we call \term{p}{Y} in the first clause. Delaying
+variant, i.e., if we call \term{p}{Y} in the first clause. Delaying
 remembers the ``given an answer $Y$ for \term{p}{Y}, we must execute the
 remainder of the clause to get a new answer''. Execution continues with
 the remainder of the program, producing \exam{p(1)}. Now we can execute
@@ -378,10 +380,10 @@ of answer and dependency clusters. It is maintained as follows
 
 \begin{itemize}
     \item If a new answer is added to the variant trie, make sure
-    this answer (the trie node) is added to an answer cluster at
-    the head (left side) of the list. If the head of the list is a
-    dependency cluster, first add a new answer cluster as new head.
-    Otherwise simply add the answer to the cluster.
+    this answer (represented as a node in the answer trie) is added
+    to an answer cluster at the head (left side) of the list. If the
+    head of the list is a dependency cluster, first add a new answer
+    cluster as new head. Otherwise simply add the answer to the cluster.
     \item If a new dependency is added to the worklist, add it to
     a dependency cluster at the tail (right side) of the list. Again, if
     the tail is not a dependency cluster, create one.
@@ -399,7 +401,7 @@ Now, each answer must be used with each dependency further down the list
     of the dependency cluster.
     \item Combine the answers and dependencies from the clusters.  Note
     that this process combines all answers with all dependencies,
-    i.e. the Cartesian product.  Note that as a result, new answers
+    i.e., the Cartesian product.  Note that as a result, new answers
     may be added at the left and new dependencies at the right.
 \end{enumerate}
 
@@ -445,7 +447,11 @@ in the top-down and left-right traversal of the goal term. For this
 reason, if a new variant is detected we create a pair consisting of the
 full goal term and a term of the shape \term{ret}{V1, ...}, containing
 all the variables that appear in the variant goal. The answer trie
-contains instances of the ret/\arg{N} term.
+contains instances of the ret/\arg{N} term.  This pair is not stored
+explicitly, but represented by the node in the variant trie.
+
+\TBD{Figure that expresses the relation between the variant trie node
+and the ret/N term}
 
 \subsection{Early completion}
 
