@@ -50,8 +50,8 @@ well founded semantics is realised by \jargon{suspending} (delaying)
 problematic goals. Effectively, tabling realises \jargon{bottom up}
 evaluation of problematic goals that contribute to a top down goal
 evaluation strategy. This also hints at two of its three drawbacks:
-memory usage and the need to keep tables consistent with the program
-\cite{DBLP:journals/tplp/Swift14}.
+memory usage and the need to keep tables consistent with the program.
+Keeping tables consistent is discussed in \secref{incremental}.
 
 The third drawback is the complexity. Here we notably refer to the
 complexity of implementing tabling. However, tabling is also complex to
@@ -467,7 +467,8 @@ early completion after an unconditional answer has been found and
 thus wrapping the goal in once/1 no longer works. The
 predicate delim/2 in \figref{leader10} is changed into the code in
 \figref{earlycompletion}, where add_answer/3 unifies \arg{Complete}
-with \const{!} if the answer is unconditional.
+with \const{!} if the worklist is marked as related to a ground goal
+and the answer is unconditional.
 
 \begin{figure}
 \begin{code}
@@ -520,7 +521,7 @@ The answer trie node that represents a specific answer is extended with
 a \jargon{record} (see \secref{record}) that represents the aggregated
 answer.
 
-TODO: walk through the above with a concrete example.
+\TBD{Walk through the above with a concrete example.}
 
 
 \section{Dynamic strongly connected components}
@@ -569,7 +570,7 @@ completion, completion is stopped after the component is merged. The
 leader that activated this completion detects the merge and turns itself
 into a follower by calling shift/1. In addition, all answers that are
 already in the answer trie must be made available to the new
-dependency.\footnote{Implemented by \$tbl_wkl_make_follower/1.}
+dependency.\footnote{Implemented by '\$tbl_wkl_make_follower'/1.}
 
 \section{Dynamic statified negation}
 \label{sec:negdstrat}
@@ -613,7 +614,7 @@ track(shiphol,   leiden).
 \end{code}
 
 In other words, tabling realises a \jargon{dynamically} stratified
-program. Negation requires special attention. We can decide on a
+program. Negation still requires special attention. We can decide on a
 negative literal under two condition, (a) we have an answer (in our
 table) that makes the negation false or (b) we have no answer and there
 is no execution path (dependent suspended node) that can produce one. In
@@ -628,7 +629,7 @@ tnot/1 is further refined in \secref{WFS}.  The steps are:
 \begin{enumerate}
     \setlength{\itemsep}{0pt}
     \item If we can decide, we are done.  This is the case if the answer
-    trie has an answer or its complete (and empty).
+    trie has an answer or it is complete (and empty).
     \item Otherwise, if the variant is fresh, run it and redo the
     decision process of step (1).
     \item If the variant is incomplete call negation_suspend/2, creating a
@@ -713,22 +714,22 @@ consequences derived from this assumption are recorded as
 \secref{negdstrat} we continue the execution of negative literals
 without answers while keeping track of the assumptions made. Any answer
 that results from running these continuations is stored along with the
-assumptions. Consider the following program:
+aggregated conditions. Consider the following program:
 
 \begin{code}
 p :- tnot(q).
 q :- tnot(p), fail.
 \end{code}
 
-It is obvious that normal tabling cannot resolve any of these goals.
-Dynamic stratification will produce an answer that differs on whether
-q/0 is considered false or p/0 is considered false. With
-\jargon{delaying} we \emph{assume} q/0 is false, deriving that p/0 is
-true if q/0 is false. Next, we assume that p/0 is false, which does not
-derive anything due to the \exam{fail}. Now q/0 has no answers, neither
-conditional nor unconditional and is thus false. This can be propagated,
-making the answer for p/0 unconditionally true because it condition (q/0
-being false) is now satified.
+It is obvious that tabling as described in the previous sections cannot
+resolve any of these goals. Dynamic stratification will produce an
+answer that differs on whether q/0 is considered false or p/0 is
+considered false. With \jargon{delaying} we \emph{assume} q/0 is false,
+deriving that p/0 is true if q/0 is false. Next, we assume that p/0 is
+false, which does not derive anything due to the \exam{fail}. Now q/0
+has no answers, neither conditional nor unconditional and is thus false.
+This can be propagated, making the answer for p/0 unconditionally true
+because it condition (q/0 being false) is now satified.
 
 The above used only negative conditions. There are also positive
 conditions. These are created if an answer is produced due to using a
@@ -775,7 +776,7 @@ Completion under well founded semantics consists of the following steps:
 \end{enumerate}
 
 Answers that remain conditional after the above process are considered
-to belong to the third truth value (undefined).
+to belong to the third truth value (\jargon{undefined}).
 
 \subsection{Implementation details for WFS}
 \label{sec:implwfs}
@@ -877,7 +878,20 @@ executing the simplification process described above with limited
 search. The only search required is finding the right delay element
 inside the delay condition associated with an answer.
 
-TODO: example
+\TBD{example}
+
+\section{Incremental tabling}
+\label{sec:incremental}
+
+As stated in the introduction, one of the drawbacks of tabling is that
+the tables may not be consistent with the current state of the program
+or the data about which the program reasons.  This problem is in part
+mitigated using \jargon{incremental tabling}
+\cite{DBLP:journals/tplp/Swift14}. Incremental tabling maintains an
+\jargon{Incremental Dependency Graph} (IDG) that represents the
+dependencies between tables and (incremental) dynamic predicates.
+
+
 
 
 \section{Some notes on performance}
