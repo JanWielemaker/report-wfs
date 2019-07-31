@@ -885,14 +885,147 @@ inside the delay condition associated with an answer.
 
 As stated in the introduction, one of the drawbacks of tabling is that
 the tables may not be consistent with the current state of the program
-or the data about which the program reasons.  This problem is in part
+or the data about which the program reasons. This problem is in part
 mitigated using \jargon{incremental tabling}
 \cite{DBLP:journals/tplp/Swift14}. Incremental tabling maintains an
 \jargon{Incremental Dependency Graph} (IDG) that represents the
-dependencies between tables and (incremental) dynamic predicates.
+dependencies between tables and (incremental) dynamic predicates. Below
+we first give a global overview of the process before describing in in
+more detail. Our implementation is close to the above referenced paper
+on incremental tabling in XSB.
 
+The IDG graph is built during tabled resolution. It is used to
+invalidate \jargon{affected} tables when a dynamic predicate changes.
+Note that the IDG just represents that another node is affected, i.e.,
+it ignores negation and does not discriminate between positive and
+negative effects. Access to an invalid table triggers a re-evaluation
+process. The re-evaluation process starts with re-evaluating tabled
+predicates that call the changed dynamic predicate. Re-evaluation
+monitors whether the new table is equivalent to the old table. If this
+is the case tables further away from the root of the change (the dynamic
+predicate) do not need to be updated.  In the remainder of this section
+we describe the data structures and algorithm in more detail
 
+The nodes of the IDG are one-to-one associated with answer tries. For
+consistency we also create an answer trie for incremental dynamic
+predicates, although this trie always remains empty. The nodes are
+connected using bi-directional links where we call the link
+\jargon{affected} in one direction and \jargon{dependent} in the other
+direction. An (IDG) node $A$ affects a node $B$ if computing the table
+for $B$ uses the answers from the answer trie related with $A$. The
+implementation use two hash tables, one containing the affected and the
+other the dependent nodes. The IDG is built while computing the tables,
+based on the global notion of the \jargon{current} node and creating an
+edge when calling an incremental tabled or dynamic predicate.
 
+In addition to the links, an IDG node maintains a \const{falsecount},
+which expresses the number of dependent nodes that have a $falsecount >
+0$, i.e., are \jargon{invalid}. If a incremental dynamic predicate is
+changed using retract/1, retractall/1 or assert/1, its
+\const{falsecount} is propagated along the affected links according
+to the following algorithm:
+
+\begin{code}
+propagate_false(node) {
+  if ( node.falsecount == 0 ) {
+    foreach(n in node.affected,
+	    propagate_false(n));
+  }
+  node.falsecount++;
+}
+\end{code}
+
+Next, a new stable status called \const{invalid} is defined for a table
+that is complete, but whose IDG node has $falsecount > 0$.
+
+Re-evaluating a table is similar to discarding the table and call the
+variant goal represented by the table. However, we want to know whether
+the table has changed or not to stop propagation early if possible.  We
+do this using the following steps:
+
+\begin{itemize}
+    \item Instead of making the table empty, we put a \const{deleted}
+flag on each node.
+    \item We record the number of values currently in the table in the
+IDG node.
+    \item We add a \const{has_new_answers} flag to the IDG node.
+    \item Now we run the variant goal and
+    \begin{itemize}
+	\item If an answer is in the table as deleted, remove the
+	deleted flag.
+	\item If an answer is not in the table, set the \const{has_new_answers}
+	flag.
+    \end{itemize}
+    \item After completing the table
+    \begin{itemize}
+	\item Remove the nodes marked \const{deleted}
+	\item If the \const{has_new_answers} is false and the number of
+	values in the trie has not changed, the table has not changed
+	and we can propagate this to the \jargon{affected} IDG nodes
+	using propagate_true() below.
+    \end{itemize}
+\end{itemize}
+
+\begin{code}
+propagate_true(node) {
+  node.falsecount--;
+  if ( node.falsecount == 0 ) {
+    foreach(n in node.affected,
+	    propagate_true(n));
+  }
+}
+\end{code}
+
+If we hit an invalid table $P$, we could simply re-evaluate $P$ as
+above. However, if we have a chain $D \longrightarrow Q \longrightarrow
+R \longrightarrow P$ where $A \longrightarrow B$ means $A$ affects $B$,
+directly re-evaluating $P$ will redo the entire computation. Therefore
+we start re-evaluating $Q$. If this propagates `valid' we are done.
+Otherwise we re-evaluate $R$, etc. Below are the steps in the
+re-evaluation strategy:
+
+\begin{itemize}
+    \item Find all paths following the \const{dependent} links from
+the triggered invalid node to a node that is either dynamic or complete.
+    \item Order these paths, giving preference to (1) paths ending in dynamic
+and (2) longer paths.  Remove duplicates.
+    \item Split the set into those ending in a dynamic node and those ending in
+a complete node.
+    \item Evaluate the paths ending in a dynamic node.  Evaluation is done
+node by node. First we evaluate the deepest (last) node of each path,
+then the one-but-deepest, etc. After each evaluated node we check
+whether our target table has become valid.  If so, the re-evaluation
+has completed.
+    \item If, after processing all paths ending in a dynamic node our
+target node is still invalid we continue the process with the paths
+that end in a completed node.
+\end{itemize}
+
+\TBD{Diagram}
+
+Note that re-evaluating a node will re-evaluate all invalid nodes that
+are included into the dynamically built SCC. This implies that when
+executing the plan as outlined above we must verify the status a node
+is still invalid before starting the re-evaluation.
+
+As described here, the implementation does not deal with well founded
+semantics.  Our actual implementation deals with WFS, closely following
+\cite{DBLP:journals/tplp/Swift14}.  We conclude this section with some
+observations.
+
+\begin{itemize}
+    \item XSB creates a new IDG node before re-evaluating.  This is
+    said to be done because we need the old number of answers to decide
+    the table did not change.  We have the current number of anwers in
+    the trie itself and store the old number in the IDG node before
+    re-evaluation starts. \TBD{XSB could to the same with an extra
+    field. Why not?}
+    \item Before re-evaluating we remove the \const{dependent} links
+    and their back links.  If the node still depends on these nodes
+    they will be re-added.  We do not touch the \const{affected}
+    links as these will be updated when the affected nodes are
+    re-evaluated.
+\end{itemize}
 
 \section{Some notes on performance}
 \label{sec:performance}
